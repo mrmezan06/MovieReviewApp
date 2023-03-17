@@ -2,6 +2,9 @@ const User = require('../models/userModel');
 const nodemailer = require('nodemailer');
 const EmailVerification = require('../models/emailVerificationModel');
 const { isValidObjectId } = require('mongoose');
+const { generate_otp } = require('../utils/generate_otp');
+const { generateMailTransporter } = require('../utils/generate_transporter');
+const { sendMessage } = require('../utils/helper');
 
 const registerUser = async (req, res) => {
   const { name, email, password } = req.body;
@@ -9,14 +12,11 @@ const registerUser = async (req, res) => {
   try {
     const matchEmail = await User.findOne({ email });
     if (matchEmail) {
-      return res.status(400).json({ message: 'Email already exists!' });
+      return sendMessage(res, 'Email already exists!', 400);
     }
     await newUser.save();
     // Generate 6 digit random number
-    let OTP = '';
-    for (let i = 0; i < 6; i++) {
-      OTP += Math.floor(Math.random() * 10);
-    }
+    const OTP = generate_otp();
     // Store OTP in database
     const newEmailVerification = new EmailVerification({
       owner: newUser._id,
@@ -24,14 +24,7 @@ const registerUser = async (req, res) => {
     });
     await newEmailVerification.save();
     // Send OTP to user email
-    const transport = nodemailer.createTransport({
-      host: process.env.MAILTRAP_HOST,
-      port: process.env.MAILTRAP_PORT,
-      auth: {
-        user: process.env.MAILTRAP_USER,
-        pass: process.env.MAILTRAP_PASSWORD,
-      },
-    });
+    const transport = generateMailTransporter();
     transport
       .sendMail({
         from: process.env.MAILTRAP_FROM,
@@ -40,14 +33,15 @@ const registerUser = async (req, res) => {
         html: `<h1>Email Verification OTP :</h1>
       <p>Your verification code is ${OTP}</p>`,
       })
-      .catch((err) => console.log(err));
+      .catch((err) => sendMessage(res, err.message, 500));
 
-    res.status(201).json({
-      message:
-        'OTP has been sent to your given email account. Please verify that email address is valid!',
-    });
+    sendMessage(
+      res,
+      'OTP has been sent to your email account. Please verify the email account!',
+      201
+    );
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendMessage(res, error.message, 500);
   }
 };
 
@@ -56,28 +50,28 @@ const verifyEmail = async (req, res) => {
   try {
     // Checking user obejctId is valid or not
     if (!isValidObjectId(userId)) {
-      return res.status(400).json({ message: 'Invalid user!' });
+      return sendMessage(res, 'Invalid user!', 400);
     }
     // Checking user exists or not
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(400).json({ message: 'User is not found!' });
+      return sendMessage(res, 'User is not found!', 400);
     }
     // Checking user email is already verified or not
     if (user.isVerified) {
-      return res.status(400).json({ message: 'Email is already verified!' });
+      return sendMessage(res, 'Email is already verified!', 400);
     }
     // Checking OTP is valid or not
     const emailVerification = await EmailVerification.findOne({
       owner: userId,
     });
     if (!emailVerification) {
-      return res.status(400).json({ message: 'OTP is not found!' });
+      return sendMessage(res, 'OTP is not found!', 404);
     }
     // Checking OTP is expired or not or not the same otp which is sent to user
     const isMatch = await emailVerification.compareToken(OTP);
     if (!isMatch) {
-      return res.status(400).json({ message: 'OTP is invalid or expired!' });
+      return sendMessage(res, 'OTP is invalid or expired!', 400);
     }
     // If all above conditions are passed then update user email verification status
     user.isVerified = true;
@@ -86,15 +80,8 @@ const verifyEmail = async (req, res) => {
     await EmailVerification.findByIdAndDelete(emailVerification._id);
 
     // Send Welcome Email to user
-    // Send OTP to user email
-    const transport = nodemailer.createTransport({
-      host: process.env.MAILTRAP_HOST,
-      port: process.env.MAILTRAP_PORT,
-      auth: {
-        user: process.env.MAILTRAP_USER,
-        pass: process.env.MAILTRAP_PASSWORD,
-      },
-    });
+    const transport = generateMailTransporter();
+
     transport
       .sendMail({
         from: process.env.MAILTRAP_FROM,
@@ -103,12 +90,69 @@ const verifyEmail = async (req, res) => {
         html: `<h1>Welcome to Movie Review App.</h1>
       <p>Here, you can find millions of movie review and storyline. Thanks for choosing our platform.</p>`,
       })
-      .catch((err) => console.log(err));
+      .catch((err) => sendMessage(res, err.message, 500));
 
-    res.status(200).json({ message: 'Email is verified successfully!' });
+    sendMessage(res, 'Email is verified successfully!', 200);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendMessage(res, error.message, 500);
   }
 };
 
-module.exports = { registerUser, verifyEmail };
+const resendOTP = async (req, res) => {
+  const { userId } = req.body;
+  try {
+    // Checking user obejctId is valid or not
+    if (!isValidObjectId(userId)) {
+      return sendMessage(res, 'Invalid user!', 400);
+    }
+    // Checking user exists or not
+    const user = await User.findById(userId);
+    if (!user) {
+      return sendMessage(res, 'User is not found!', 404);
+    }
+    // Checking user email is already verified or not
+    if (user.isVerified) {
+      return sendMessage(res, 'Email is already verified!', 400);
+    }
+
+    // Checking OTP is valid or not
+    const emailVerification = await EmailVerification.findOne({
+      owner: userId,
+    });
+    if (emailVerification) {
+      return sendMessage(res, 'Try again after 15 minutes', 400);
+    }
+
+    // Generate 6 digit random number
+    const OTP = generate_otp();
+    // Store OTP in database
+    const newEmailVerification = new EmailVerification({
+      owner: user._id,
+      token: OTP,
+    });
+    await newEmailVerification.save();
+
+    // Send OTP to user email
+    const transport = generateMailTransporter();
+
+    transport
+      .sendMail({
+        from: process.env.MAILTRAP_FROM,
+        to: user.email,
+        subject: 'Email Verification For Movie Review App Account',
+        html: `<h1>Email Verification OTP :</h1>
+    <p>Your verification code is ${OTP}</p>`,
+      })
+      .catch((err) => sendMessage(res, err.message, 500));
+
+    sendMessage(
+      res,
+      'OTP has been resent to your email account. Please verify the email account!',
+      201
+    );
+  } catch (error) {
+    sendMessage(res, error.message, 500);
+  }
+};
+
+module.exports = { registerUser, verifyEmail, resendOTP };

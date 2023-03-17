@@ -14,7 +14,7 @@ const emailVerificationSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now(),
-    expires: 3600, // 1 hour
+    expires: 900, // 15 minutes
   },
 });
 // Token will be hashed before saving to database
