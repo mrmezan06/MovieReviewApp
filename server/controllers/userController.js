@@ -5,6 +5,7 @@ const { generate_otp } = require('../utils/generate_otp');
 const { generateMailTransporter } = require('../utils/generate_transporter');
 const { sendMessage, generateRandomBytes } = require('../utils/helper');
 const PasswordReset = require('../models/passswordResetModel');
+const bcrypt = require('bcrypt');
 
 const registerUser = async (req, res) => {
   const { name, email, password } = req.body;
@@ -192,4 +193,50 @@ const forgotPassword = async (req, res) => {
   }
 };
 
-module.exports = { registerUser, verifyEmail, resendOTP, forgotPassword };
+const sendResetPasswordTokenStatus = (req, res) => {
+  res.status(200).json({
+    valid: true,
+  });
+};
+
+const resetPassword = async (req, res) => {
+  const { password, id } = req.body;
+  const user = await User.findById(id);
+  if (!user) {
+    return sendMessage(res, 'User is not found!', 404);
+  }
+  // console.log(password, user);
+  const match = await user.comparePassword(password);
+  if (match) {
+    return sendMessage(
+      res,
+      'New password cannot be same as old password!',
+      400
+    );
+  }
+
+  user.password = password;
+  await user.save();
+
+  await PasswordReset.findOneAndDelete({ owner: id });
+
+  const transport = generateMailTransporter();
+  transport.sendMail({
+    from: process.env.MAILTRAP_FROM,
+    to: user.email,
+    subject: 'Password Reset For Movie Review App Account',
+    html: `<h1>Password Reset Successfully</h1>
+    <p>Your password has been reset successfully! Now You can use your new password.</p>`,
+  });
+
+  sendMessage(res, 'Password has been reset successfully!', 200);
+};
+
+module.exports = {
+  registerUser,
+  verifyEmail,
+  resendOTP,
+  forgotPassword,
+  sendResetPasswordTokenStatus,
+  resetPassword,
+};

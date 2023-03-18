@@ -26,8 +26,8 @@ passwordResetSchema.pre('save', async function (next) {
   next();
 });
 // OTP will be compared with hashed token in database
-passwordResetSchema.methods.compareToken = async function (OTP) {
-  return await bcrypt.compare(OTP, this.token);
+passwordResetSchema.methods.compareToken = async function (token) {
+  return await bcrypt.compare(token, this.token);
 };
 
 const PasswordReset = mongoose.model('PasswordReset', passwordResetSchema);

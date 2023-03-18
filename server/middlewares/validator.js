@@ -11,6 +11,12 @@ exports.userValidator = [
     .withMessage('Password must be between 4 and 20 characters!'),
 ];
 
+exports.validatePassword = [
+  check('password')
+    .isLength({ min: 4, max: 20 })
+    .withMessage('Password must be between 4 and 20 characters!'),
+];
+
 exports.validate = (req, res, next) => {
   const errors = validationResult(req).array();
   if (errors.length > 0) {
