@@ -1,10 +1,10 @@
 const User = require('../models/userModel');
-const nodemailer = require('nodemailer');
 const EmailVerification = require('../models/emailVerificationModel');
 const { isValidObjectId } = require('mongoose');
 const { generate_otp } = require('../utils/generate_otp');
 const { generateMailTransporter } = require('../utils/generate_transporter');
-const { sendMessage } = require('../utils/helper');
+const { sendMessage, generateRandomBytes } = require('../utils/helper');
+const PasswordReset = require('../models/passswordResetModel');
 
 const registerUser = async (req, res) => {
   const { name, email, password } = req.body;
@@ -155,4 +155,41 @@ const resendOTP = async (req, res) => {
   }
 };
 
-module.exports = { registerUser, verifyEmail, resendOTP };
+const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      return sendMessage(res, 'User is not found!', 404);
+    }
+
+    const passwordReset = await PasswordReset.findOne({ owner: user._id });
+    if (passwordReset) {
+      return sendMessage(res, 'Try again after 15 minutes', 400);
+    }
+
+    const token = await generateRandomBytes(30);
+    const newPasswordReset = new PasswordReset({
+      owner: user._id,
+      token,
+    });
+    await newPasswordReset.save();
+
+    const resetPasswordURL = `${process.env.CLIENT_URL}/reset-password?id=${user._id}&token=${token}`;
+
+    const transport = generateMailTransporter();
+
+    transport.sendMail({
+      from: process.env.MAILTRAP_FROM,
+      to: user.email,
+      subject: 'Password Reset For Movie Review App Account',
+      html: `<h1>Password Reset URL :</h1>
+      <p>You can reset your password by clicking this link - <a href='${resetPasswordURL}'>Reset Password</a> [One time use only]</p>`,
+    });
+    sendMessage(res, 'Password reset link has been sent to your email!', 200);
+  } catch (error) {
+    sendMessage(res, error.message, 500);
+  }
+};
+
+module.exports = { registerUser, verifyEmail, resendOTP, forgotPassword };

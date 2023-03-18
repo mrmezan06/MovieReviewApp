@@ -1,3 +1,4 @@
+const nodemailer = require('nodemailer');
 exports.generateMailTransporter = () =>
   nodemailer.createTransport({
     host: process.env.MAILTRAP_HOST,
